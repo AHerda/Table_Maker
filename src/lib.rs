@@ -2,8 +2,8 @@ use std::io::{Write, self};
 
 #[derive(PartialEq, Debug)]
 enum Dir {
-    ROW,
-    COLUMN,
+    Row,
+    Column,
 }
 
 struct Table {
@@ -18,7 +18,7 @@ struct Table {
 impl Table {
     fn new() -> Table {
         Table {
-            flow_direction: Dir::COLUMN,
+            flow_direction: Dir::Row,
             columns: 0,
             rows: 0,
             headers: Vec::new(),
@@ -35,8 +35,8 @@ impl Table {
         Err(String::from("Columns already set"))
     }
 
-    fn set_headers(&mut self, mut headers: Vec<String>) -> Result<u16, String> {
-        let len: u16 = headers.len() as u16;
+    fn set_headers(&mut self, headers: Vec<String>) -> Result<u16, String> {
+        let len: u16 = u16::try_from(headers.len()).unwrap();
         if self.columns == 0 {
             self.columns = len;
         } else if self.columns != len || self.headers != Vec::<String>::new() {
@@ -50,7 +50,7 @@ impl Table {
     }
 
     fn add_object(&mut self, name: String, values: Vec<String>) -> Result<String, String> {
-        if self.columns != values.len() as u16 {
+        if self.columns != u16::try_from(values.len()).unwrap() {
             return Err(format!(
                 "Wrong number of values\nShould be: {}",
                 self.columns
@@ -89,9 +89,9 @@ impl Table {
                 }
             }
         }
-        column_lengths.iter_mut().for_each(|len| {
+        for len in &mut column_lengths {
             *len += 2;
-        });
+        }
 
         column_lengths.clone().iter().for_each(|len| {
             break_line.push_str(format!("{data:-^length$}+", data = "-", length = len).as_str());
@@ -141,7 +141,7 @@ impl Table {
     }
 
     fn println(&self) {
-        _ = write!(io::stdout(), "{}\n", self.get_as_string());
+        _ = writeln!(io::stdout(), "{}", self.get_as_string());
     }
 }
 
@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn new_test() {
         let result: Table = Table::new();
-        assert_eq!(result.flow_direction, Dir::COLUMN);
+        assert_eq!(result.flow_direction, Dir::Row);
         assert_eq!(result.columns, 0);
         assert_eq!(result.rows, 0);
         assert_eq!(result.headers, Vec::<String>::new());
