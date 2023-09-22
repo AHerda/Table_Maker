@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::io::{Write, self};
 
 #[derive(PartialEq, Debug)]
 enum Dir {
@@ -6,46 +6,142 @@ enum Dir {
     COLUMN,
 }
 
-struct Table<'a> {
+struct Table {
     flow_direction: Dir,
     columns: u16,
     rows: u16,
     headers: Vec<String>,
     names: Vec<String>,
-    objects: Vec<&'a [String]>,
+    values: Vec<Vec<String>>,
 }
 
-impl<'a> Table<'a> {
-    fn new() -> Table<'a> {
-        Table { flow_direction: Dir::COLUMN, columns: 0, rows: 0, headers: Vec::new(), names: Vec::new(), objects: Vec::new() }
+impl Table {
+    fn new() -> Table {
+        Table {
+            flow_direction: Dir::COLUMN,
+            columns: 0,
+            rows: 0,
+            headers: Vec::new(),
+            names: Vec::new(),
+            values: Vec::new(),
+        }
     }
 
-    fn set_columns(&mut self, columns: u16) -> Result<u16, &'static str> {
+    fn set_columns(&mut self, columns: u16) -> Result<u16, String> {
         if self.columns == 0 {
             self.columns = columns;
-            return Ok(columns)
+            return Ok(columns);
         }
-        Err("Columns already set")
+        Err(String::from("Columns already set"))
     }
 
-    fn set_headers(&mut self, headers: Vec<String>) -> Result<u16, &'static str> {
+    fn set_headers(&mut self, mut headers: Vec<String>) -> Result<u16, String> {
         let len: u16 = headers.len() as u16;
         if self.columns == 0 {
             self.columns = len;
+        } else if self.columns != len || self.headers != Vec::<String>::new() {
+            return Err(String::from(
+                "Columns or headers already set or wrong number of headers",
+            ));
         }
-        else if self.columns != len || self.headers != Vec::<String>::new() {
-            return Err("Columns or headers already set or wrong number of headers")
-        }
+
         self.headers = headers;
         Ok(len)
     }
 
-    fn add_object(&mut self, name: String, ) {
-        if self.flow_direction == Dir::COLUMN {
-            self.rows += 1;
-            self.names.push(name);
-            
+    fn add_object(&mut self, name: String, values: Vec<String>) -> Result<String, String> {
+        if self.columns != values.len() as u16 {
+            return Err(format!(
+                "Wrong number of values\nShould be: {}",
+                self.columns
+            ));
         }
+
+        self.names.push(name.clone());
+        self.values.push(values);
+        self.rows += 1;
+
+        Ok(name)
+    }
+
+    fn get_as_string(&self) -> String {
+        let mut result = String::new();
+        let mut break_line = String::from("+");
+        let mut column_lengths = vec![0; (self.columns + 1).into()];
+
+        column_lengths[0] = self
+            .names
+            .clone()
+            .iter()
+            .max_by(|s1, s2| s1.len().cmp(&s2.len()))
+            .unwrap()
+            .len();
+
+        self.headers.iter().enumerate().for_each(|(i, s)| {
+            column_lengths[i + 1] = s.len();
+        });
+
+        for i in 0..self.columns {
+            for j in 0..self.rows {
+                let len = self.values[j as usize][i as usize].len();
+                if column_lengths[(i + 1) as usize] < len {
+                    column_lengths[(i + 1) as usize] = len;
+                }
+            }
+        }
+        column_lengths.iter_mut().for_each(|len| {
+            *len += 2;
+        });
+
+        column_lengths.clone().iter().for_each(|len| {
+            break_line.push_str(format!("{data:-^length$}+", data = "-", length = len).as_str());
+        });
+        break_line.push('\n');
+
+        let mut header_line: String = String::from("|");
+        header_line
+            .push_str(format!("{data:^len$}|", len = column_lengths[0], data = " ").as_str());
+        column_lengths[1..]
+            .iter()
+            .enumerate()
+            .for_each(|(index, len)| {
+                header_line.push_str(format!("{:^len$}|", self.headers[index]).as_str());
+            });
+        header_line.push('\n');
+
+        // Header part
+        result.push_str(&break_line);
+        result.push_str(&header_line);
+        result.push_str(&break_line);
+
+        for row in 0..self.rows {
+            let mut line: String = String::from("|");
+            line.push_str(&format!(
+                "{data:^len$}|",
+                len = column_lengths[0],
+                data = self.names[row as usize]
+            ));
+            column_lengths[1..]
+                .iter()
+                .enumerate()
+                .for_each(|(column, len)| {
+                    line.push_str(&format!("{:^len$}|", self.values[row as usize][column]));
+                });
+            line.push('\n');
+
+            result.push_str(&line);
+            result.push_str(&break_line);
+        }
+
+        result
+    }
+
+    fn print(&self) {
+        _ = write!(io::stdout(), "{}", self.get_as_string());
+    }
+
+    fn println(&self) {
+        _ = write!(io::stdout(), "{}\n", self.get_as_string());
     }
 }
 
@@ -85,21 +181,38 @@ mod tests {
         let mut tab: Table = Table::new();
         _ = tab.set_columns(3);
 
-        let result = tab.set_headers(vec![String::from("h1"), String::from("h2"), String::from("h3")]);
+        let result = tab.set_headers(vec![
+            String::from("h1"),
+            String::from("h2"),
+            String::from("h3"),
+        ]);
         match result {
             Ok(len) => {
                 assert_eq!(len, 3);
-                assert_eq!(tab.headers, vec![String::from("h1"), String::from("h2"), String::from("h3")])
+                assert_eq!(
+                    tab.headers,
+                    vec![String::from("h1"), String::from("h2"), String::from("h3")]
+                )
             }
-            Err(_) => panic!("WTF?!?!")
+            Err(_) => panic!("WTF?!?!"),
         }
 
-        let result = tab.set_headers(vec![String::from("h3"), String::from("h3"), String::from("h3")]);
+        let result = tab.set_headers(vec![
+            String::from("h3"),
+            String::from("h3"),
+            String::from("h3"),
+        ]);
         match result {
             Ok(_) => panic!("WTF!!??"),
             Err(err) => {
-                assert_eq!(err, "Columns or headers already set or wrong number of headers");
-                assert_eq!(tab.headers, vec![String::from("h1"), String::from("h2"), String::from("h3")]);
+                assert_eq!(
+                    err,
+                    "Columns or headers already set or wrong number of headers"
+                );
+                assert_eq!(
+                    tab.headers,
+                    vec![String::from("h1"), String::from("h2"), String::from("h3")]
+                );
             }
         }
     }
@@ -108,22 +221,117 @@ mod tests {
     fn set_headers_test_2() {
         let mut tab: Table = Table::new();
 
-        let result = tab.set_headers(vec![String::from("h1"), String::from("h2"), String::from("h3")]);
+        let result = tab.set_headers(vec![
+            String::from("h1"),
+            String::from("h2"),
+            String::from("h3"),
+        ]);
         match result {
             Ok(len) => {
                 assert_eq!(len, 3);
-                assert_eq!(tab.headers, vec![String::from("h1"), String::from("h2"), String::from("h3")])
+                assert_eq!(
+                    tab.headers,
+                    vec![String::from("h1"), String::from("h2"), String::from("h3")]
+                );
             }
-            Err(_) => panic!("WTF?!?!")
+            Err(_) => panic!("WTF?!?!"),
         }
 
-        let result = tab.set_headers(vec![String::from("h3"), String::from("h3"), String::from("h3"), String::from("h3")]);
+        let result = tab.set_headers(vec![
+            String::from("h3"),
+            String::from("h3"),
+            String::from("h3"),
+            String::from("h3"),
+        ]);
         match result {
             Ok(_) => panic!("WTF!!??"),
             Err(err) => {
-                assert_eq!(err, "Columns or headers already set or wrong number of headers");
-                assert_eq!(tab.headers, vec![String::from("h1"), String::from("h2"), String::from("h3")]);
+                assert_eq!(
+                    err,
+                    "Columns or headers already set or wrong number of headers"
+                );
+                assert_eq!(
+                    tab.headers,
+                    vec![String::from("h1"), String::from("h2"), String::from("h3")]
+                );
             }
         }
+    }
+
+    #[test]
+    fn add_object_test() {
+        let mut tab: Table = Table::new();
+
+        _ = tab.set_headers(vec![
+            String::from("h1"),
+            String::from("h2"),
+            String::from("h3"),
+        ]);
+        let name1 = match tab.add_object(
+            String::from("name1"),
+            vec![String::from("h1"), String::from("h2"), String::from("h3")],
+        ) {
+            Ok(name1) => name1,
+            Err(err) => panic!("WTF?!?! {}", err),
+        };
+
+        assert_eq!(tab.rows, 1);
+        assert_eq!(name1, String::from("name1"));
+        assert_eq!(tab.names[0], String::from("name1"));
+        assert_eq!(
+            tab.values[0],
+            vec![String::from("h1"), String::from("h2"), String::from("h3")]
+        );
+        for i in 0..3 {
+            assert_eq!(tab.values[0][i], format!("h{}", i + 1));
+        }
+    }
+
+    #[test]
+    fn print_test() {
+        let mut tab: Table = Table::new();
+        _ = tab.set_headers(vec![
+            String::from("h1"),
+            String::from("h2"),
+            String::from("h3"),
+        ]);
+
+        _ = tab.add_object(
+            String::from("o1"),
+            vec!["o1h1".to_string(), "o1h2".to_string(), "o1h3".to_string()],
+        );
+        _ = tab.add_object(
+            String::from("o2"),
+            vec!["o2h1".to_string(), "o2h2".to_string(), "o2h3".to_string()],
+        );
+        _ = tab.add_object(
+            String::from("o3"),
+            vec!["o3h1".to_string(), "o3h2".to_string(), "o3h3".to_string()],
+        );
+        _ = tab.add_object(
+            String::from("o4"),
+            vec!["o4h1".to_string(), "o4h2".to_string(), "o4h3".to_string()],
+        );
+        _ = tab.add_object(
+            String::from("o5"),
+            vec!["o5h1".to_string(), "o5h2".to_string(), "o5h3".to_string()],
+        );
+
+        assert_eq!(tab.get_as_string(), 
+"+----+------+------+------+
+|    |  h1  |  h2  |  h3  |
++----+------+------+------+
+| o1 | o1h1 | o1h2 | o1h3 |
++----+------+------+------+
+| o2 | o2h1 | o2h2 | o2h3 |
++----+------+------+------+
+| o3 | o3h1 | o3h2 | o3h3 |
++----+------+------+------+
+| o4 | o4h1 | o4h2 | o4h3 |
++----+------+------+------+
+| o5 | o5h1 | o5h2 | o5h3 |
++----+------+------+------+\n");
+
+tab.println();
     }
 }
