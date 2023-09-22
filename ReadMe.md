@@ -4,5 +4,5 @@ At the sam time it's purpose is to help me with my studies as I often have to pr
 from exercises or projects in a table manner. I have plans to use and improve this code in the future.
 
 ### Additional info
-Author: Adrian Herda
+Author: Adrian Herda</br>
 Date: 21.09.23
