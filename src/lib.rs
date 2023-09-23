@@ -1,4 +1,4 @@
-use std::io::{Write, self};
+use std::io::{self, Write};
 
 #[derive(PartialEq, Debug)]
 enum Dir {
@@ -25,6 +25,22 @@ impl Table {
             names: Vec::new(),
             values: Vec::new(),
         }
+    }
+
+    fn change_flow_dir(&mut self) -> Dir {
+        self.flow_direction = match self.flow_direction {
+            Dir::Row => Dir::Column,
+            Dir::Column => Dir::Row,
+        };
+
+        match self.flow_direction {
+            Dir::Row => Dir::Row,
+            Dir::Column => Dir::Column,
+        }
+    }
+
+    fn set_flow_dir(&mut self, dir: Dir) {
+        self.flow_direction = dir;
     }
 
     fn set_columns(&mut self, columns: u16) -> Result<u16, String> {
@@ -64,14 +80,13 @@ impl Table {
         Ok(name)
     }
 
-    fn get_as_string(&self) -> String {
+    fn get_as_string_row(&self, horizontal_lines: bool) -> String {
         let mut result = String::new();
         let mut break_line = String::from("+");
+        let mut header_line: String = String::from("|");
         let mut column_lengths = vec![0; (self.columns + 1).into()];
 
-        column_lengths[0] = self
-            .names
-            .clone()
+        column_lengths[0] = self.names
             .iter()
             .max_by(|s1, s2| s1.len().cmp(&s2.len()))
             .unwrap()
@@ -93,12 +108,11 @@ impl Table {
             *len += 2;
         }
 
-        column_lengths.clone().iter().for_each(|len| {
+        column_lengths.iter().for_each(|len| {
             break_line.push_str(format!("{data:-^length$}+", data = "-", length = len).as_str());
         });
         break_line.push('\n');
 
-        let mut header_line: String = String::from("|");
         header_line
             .push_str(format!("{data:^len$}|", len = column_lengths[0], data = " ").as_str());
         column_lengths[1..]
@@ -130,18 +144,114 @@ impl Table {
             line.push('\n');
 
             result.push_str(&line);
-            result.push_str(&break_line);
+            if horizontal_lines || row == self.rows - 1 { result.push_str(&break_line); };
         }
 
         result
     }
 
+    fn get_as_string_column(&self, horizontal_lines: bool) -> String {
+        let mut result = String::new();
+        let mut break_line = String::from("+");
+        let mut name_line: String = String::from("|");
+        let mut column_lengths = vec![0; (self.rows + 1).into()];
+
+        column_lengths[0] = self.headers
+            .iter()
+            .map(|header| header.len())
+            .max()
+            .unwrap_or(0) + 2;
+
+        self.values
+            .iter()
+            .enumerate()
+            .for_each(|(index, values)| {
+                column_lengths[index + 1] = values
+                    .iter()
+                    .map(|value| value.len())
+                    .max()
+                    .unwrap_or(0);
+            });
+        
+        self.names
+            .iter()
+            .map(|name| name.len())
+            .enumerate()
+            .for_each(|(index, len)| {
+                if len > column_lengths[index + 1] {
+                    column_lengths[index + 1] = len;
+                }
+                column_lengths[index + 1] += 2;
+            });
+        
+        // Creating break line
+        column_lengths
+            .iter()
+            .for_each(|len| {
+                break_line.push_str(format!("{data:-^length$}+", data = "-", length = len).as_str());
+            });
+        break_line.push('\n');
+
+        // Creating name line
+        name_line
+            .push_str(format!("{data:^len$}|", len = column_lengths[0], data = " ").as_str());
+        column_lengths[1..]
+            .iter()
+            .enumerate()
+            .for_each(|(index, len)| {
+                name_line.push_str(format!("{:^len$}|", self.names[index]).as_str());
+            });
+        name_line.push('\n');
+
+        // Name part
+        result.push_str(&break_line);
+        result.push_str(&name_line);
+        result.push_str(&break_line);
+
+        for column_u16 in 0..self.columns {
+            let mut line: String = String::from("|");
+            let column_usize: usize = usize::from(column_u16);
+
+            line.push_str(&format!("{data:^len$}|", len = column_lengths[0], data = self.headers[column_usize]));
+
+            column_lengths[1..]
+                .iter()
+                .enumerate()
+                .for_each(|(row, len)| {
+                    line.push_str(&format!("{data:^len$}|", data = self.values[row][column_usize]))
+                });
+            line.push('\n');
+            result.push_str(&line);
+            if horizontal_lines || column_u16 == self.columns - 1 { result.push_str(&break_line); };
+        }
+
+        result
+    }
+
+    fn get_as_string(&self, horizontal_lines: bool) -> String {
+        if self.flow_direction == Dir::Row {
+            self.get_as_string_row(horizontal_lines)
+        } else if self.flow_direction == Dir::Column {
+            self.get_as_string_column(horizontal_lines)
+        } else {
+            String::from("The fuck you did?!?!")
+        }
+    }
+
     fn print(&self) {
-        _ = write!(io::stdout(), "{}", self.get_as_string());
+        _ = write!(io::stdout(), "{}", self.get_as_string(true));
     }
 
     fn println(&self) {
-        _ = writeln!(io::stdout(), "{}", self.get_as_string());
+        _ = writeln!(io::stdout(), "{}", self.get_as_string(true));
+    }
+
+    fn print_no_hl(&self) {
+        _ = write!(io::stdout(), "{}", self.get_as_string(false));
+    }
+
+    fn println_no_hl(&self) {
+        _ = writeln!(io::stdout(), "{}", self.get_as_string(false));
     }
 }
 
@@ -157,6 +267,30 @@ mod tests {
         assert_eq!(result.rows, 0);
         assert_eq!(result.headers, Vec::<String>::new());
         assert_eq!(result.names, Vec::<String>::new());
+    }
+
+    #[test]
+    fn change_flow_dir_test() {
+        let mut tab: Table = Table::new();
+        assert_eq!(tab.flow_direction, Dir::Row);
+        let flow: Dir = tab.change_flow_dir();
+        assert_eq!(flow, Dir::Column);
+        assert_eq!(tab.flow_direction, Dir::Column);
+    }
+
+    #[test]
+    fn set_flow_dir_test() {
+        let mut tab: Table = Table::new();
+        assert_eq!(tab.flow_direction, Dir::Row);
+
+        tab.set_flow_dir(Dir::Row);
+        assert_eq!(tab.flow_direction, Dir::Row);
+
+        tab.set_flow_dir(Dir::Column);
+        assert_eq!(tab.flow_direction, Dir::Column);
+
+        tab.set_flow_dir(Dir::Row);
+        assert_eq!(tab.flow_direction, Dir::Row);
     }
 
     #[test]
@@ -317,7 +451,8 @@ mod tests {
             vec!["o5h1".to_string(), "o5h2".to_string(), "o5h3".to_string()],
         );
 
-        assert_eq!(tab.get_as_string(), 
+        assert_eq!(
+            tab.get_as_string(true),
 "+----+------+------+------+
 |    |  h1  |  h2  |  h3  |
 +----+------+------+------+
@@ -330,8 +465,43 @@ mod tests {
 | o4 | o4h1 | o4h2 | o4h3 |
 +----+------+------+------+
 | o5 | o5h1 | o5h2 | o5h3 |
-+----+------+------+------+\n");
-
-tab.println();
++----+------+------+------+\n"
+        );
+        assert_eq!(
+            tab.get_as_string(false),
+"+----+------+------+------+
+|    |  h1  |  h2  |  h3  |
++----+------+------+------+
+| o1 | o1h1 | o1h2 | o1h3 |
+| o2 | o2h1 | o2h2 | o2h3 |
+| o3 | o3h1 | o3h2 | o3h3 |
+| o4 | o4h1 | o4h2 | o4h3 |
+| o5 | o5h1 | o5h2 | o5h3 |
++----+------+------+------+\n"
+        );
+        
+        _ = tab.change_flow_dir();
+        assert_eq!(
+            tab.get_as_string(true),
+"+----+------+------+------+------+------+
+|    |  o1  |  o2  |  o3  |  o4  |  o5  |
++----+------+------+------+------+------+
+| h1 | o1h1 | o2h1 | o3h1 | o4h1 | o5h1 |
++----+------+------+------+------+------+
+| h2 | o1h2 | o2h2 | o3h2 | o4h2 | o5h2 |
++----+------+------+------+------+------+
+| h3 | o1h3 | o2h3 | o3h3 | o4h3 | o5h3 |
++----+------+------+------+------+------+\n"
+        );
+        assert_eq!(
+            tab.get_as_string(false),
+"+----+------+------+------+------+------+
+|    |  o1  |  o2  |  o3  |  o4  |  o5  |
++----+------+------+------+------+------+
+| h1 | o1h1 | o2h1 | o3h1 | o4h1 | o5h1 |
+| h2 | o1h2 | o2h2 | o3h2 | o4h2 | o5h2 |
+| h3 | o1h3 | o2h3 | o3h3 | o4h3 | o5h3 |
++----+------+------+------+------+------+\n"
+        );
     }
 }
